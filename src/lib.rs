@@ -306,6 +306,8 @@ fn print_tree<const D: usize>(
 mod tests {
     use super::*;
 
+    use rand::distributions::{Distribution, Uniform};
+
     fn to_vecs(data: &[[f64; 2]]) -> Vec<Vector<2>> {
         data
             .iter()
@@ -660,6 +662,37 @@ mod tests {
         let tree = KdTree::new(&vecs, leaf_size);
         tree.print();
         search_and_print(&Vector::<2>::new(0., -4.), &vecs, &tree);
+    }
+
+    #[test]
+    fn test_search_on_uniform_random() {
+        let between = Uniform::from(-100..100);
+        let mut rng = rand::thread_rng();
+
+        const D: usize = 5;
+        let mut random_uniform_vector = || {
+            let mut v = Vector::<D>::default();
+            for i in 0..D {
+                v[i] = between.sample(&mut rng) as f64;
+            }
+            v
+        };
+
+        let vecs = (0..5000).map(|_| random_uniform_vector()).collect::<Vec<Vector<D>>>();
+
+        let tree = KdTree::new(&vecs, 2);
+        let indices: Vec<usize> = (0..vecs.len()).collect();
+
+        for _ in 0..100 {
+            let query = random_uniform_vector();
+            let (_argmin, distance) = tree.search(&query);
+            let (_argmin_true, distance_true) = find_nearest(&query, &indices, &vecs);
+
+            // There's a possibility to retrieve the item with the same
+            // distance as the ground truth but in a different index so we
+            // don't evaluate argmin here
+            assert_eq!(distance, distance_true);
+        }
     }
 
     #[test]
