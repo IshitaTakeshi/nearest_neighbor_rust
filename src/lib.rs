@@ -143,21 +143,20 @@ impl<'a, const D: usize> KdTree<'a, D> {
         node_index: usize,
         query: &Vector<D>,
         argmin: &Option<usize>,
-        distance: f64,
+        min_distance: f64,
     ) -> (Option<usize>, f64) {
         let mut argmin = *argmin;
-        let mut distance = distance;
+        let mut min_distance = min_distance;
         let mut stack = Vec::from([(node_index, find_dim::<D>(node_index))]);
         while stack.len() != 0 {
             let (node_index, dim) = stack.pop().unwrap();
             let Some(&boundary) = self.boundaries.get(&node_index) else {
                 // If `node_index` is not in boundaries, `node_index` must be a leaf.
                 let indices = self.leaves.get(&node_index).unwrap();
-                // Update if the nearest element in the leaf is closer than the current
-                // nearest
-                let (argmin_candidate, distance_candidate) = find_nearest(query, &indices, self.data);
-                if distance_candidate < distance {
-                    (argmin, distance) = (argmin_candidate, distance_candidate);
+                let (candidate, distance) = find_nearest(query, &indices, self.data);
+                if distance < min_distance {
+                    argmin = candidate;
+                    min_distance = distance;
                 }
                 continue;
             };
@@ -167,13 +166,14 @@ impl<'a, const D: usize> KdTree<'a, D> {
             let next_dim = (dim + 1) % D;
             stack.push((near, next_dim));
 
-            // Boundary is farther than the nearest element
-            if distance_to_boundary(query, boundary, dim) > distance {
+            // If the nearest element is closer than the boundary, we don't
+            // need to search the farther side than the boundary.
+            if min_distance < distance_to_boundary(query, boundary, dim) {
                 continue;
             }
             stack.push((far, next_dim));
         }
-        (argmin, distance)
+        (argmin, min_distance)
     }
 
     fn find_nearest_in_other_areas(
