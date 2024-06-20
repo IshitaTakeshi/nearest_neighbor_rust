@@ -6,9 +6,12 @@ use log::info; // Use log crate when building application
 #[cfg(feature = "std")]
 use std::{println as info};
 
+mod vecmap;
+
 #[macro_use]
 extern crate alloc;
 
+use crate::vecmap::VecMap;
 use num_traits::float::FloatCore;
 use core::cmp::Ordering;
 use alloc::collections::BTreeMap;
@@ -45,7 +48,7 @@ fn divide<const D: usize>(
 pub struct KdTree<'a, const D: usize> {
     data: &'a [Vector<D>],
     /// Maps a node_index to a boundary value
-    boundaries: BTreeMap::<usize, f64>,
+    boundaries: VecMap::<f64>,
     /// Maps a node_index (must be a leaf) to data indices in the leaf
     leaves: BTreeMap::<usize, Vec<usize>>,
 }
@@ -150,7 +153,12 @@ impl<'a, const D: usize> KdTree<'a, D> {
         let mut stack = Vec::from([(node_index, find_dim::<D>(node_index))]);
         while stack.len() != 0 {
             let (node_index, dim) = stack.pop().unwrap();
-            let Some(&boundary) = self.boundaries.get(&node_index) else {
+            // let boundary_get_time = std::time::Instant::now();
+            let maybe_boundary = self.boundaries.get(&node_index);
+            // println!("boundary_get_time = {:?}", boundary_get_time.elapsed());
+
+            let Some(&boundary) = maybe_boundary else {
+                // let find_nearest_time = std::time::Instant::now();
                 // If `node_index` is not in boundaries, `node_index` must be a leaf.
                 let indices = self.leaves.get(&node_index).unwrap();
                 let (candidate, distance) = find_nearest(query, &indices, self.data);
@@ -158,14 +166,17 @@ impl<'a, const D: usize> KdTree<'a, D> {
                     argmin = candidate;
                     min_distance = distance;
                 }
+                // println!("find_nearest_time = {:?}", find_nearest_time.elapsed());
                 continue;
             };
 
+            // let push_time = std::time::Instant::now();
             let (near, far) = children_near_far(query[(dim, 0)], boundary, node_index);
 
             let next_dim = (dim + 1) % D;
             stack.push((near, next_dim));
 
+            // println!("push_time = {:?}", push_time.elapsed());
             // If the nearest element is closer than the boundary, we don't
             // need to search the farther side than the boundary.
             if min_distance < distance_to_boundary(query, boundary, dim) {
@@ -208,7 +219,7 @@ impl<'a, const D: usize> KdTree<'a, D> {
     ) -> Self {
         assert!(data.len() >= leaf_size);
         let indices = non_duplicate_indices(data);
-        let mut boundaries = BTreeMap::<usize, f64>::new();
+        let mut boundaries = VecMap::<f64>::new();
         let mut leaves = BTreeMap::<usize, Vec<usize>>::new();
 
         let mut stack = Vec::from([(indices, 1, 0)]);
@@ -235,13 +246,27 @@ impl<'a, const D: usize> KdTree<'a, D> {
     }
 
     pub fn search(&self, query: &Vector<D>) -> (Option<usize>, f64) {
+        // let t1 = awkernel_lib::delay::uptime();
         let leaf_index = find_leaf(query, &self.boundaries);
+
+        // let t2 = awkernel_lib::delay::uptime();
         let Some(indices) = self.leaves.get(&leaf_index) else {
             panic_leaf_node_not_found(query, leaf_index);
         };
 
+        // let t3 = awkernel_lib::delay::uptime();
         let (argmin, distance) = find_nearest(query, &indices, self.data);
-        self.find_nearest_in_other_areas(query, &argmin, distance, leaf_index)
+
+        // let t4 = awkernel_lib::delay::uptime();
+        let (argmin, distance) = self.find_nearest_in_other_areas(query, &argmin, distance, leaf_index);
+
+        // let t5 = awkernel_lib::delay::uptime();
+
+        // info!("find_leaf                    {}", t2 - t1);
+        // info!("leaves.get                   {}", t3 - t2);
+        // info!("find_nearest                 {}", t4 - t3);
+        // info!("find_nearest_in_other_areas  {}", t5 - t4);
+        (argmin, distance)
     }
 }
 
@@ -271,7 +296,7 @@ fn find_nearest<const D: usize>(
     (argmin, min_distance)
 }
 
-fn find_leaf<const D: usize>(query: &Vector<D>, boundaries: &BTreeMap<usize, f64>) -> usize {
+fn find_leaf<const D: usize>(query: &Vector<D>, boundaries: &VecMap<f64>) -> usize {
     let mut node_index = 1;
     let mut dim: usize = 0;
     while let Some(&boundary) = boundaries.get(&node_index) {
@@ -286,7 +311,7 @@ fn find_leaf<const D: usize>(query: &Vector<D>, boundaries: &BTreeMap<usize, f64
 }
 
 fn print_tree<const D: usize>(
-    boundaries: &BTreeMap<usize, f64>,
+    boundaries: &VecMap<f64>,
     leaves: &BTreeMap<usize, Vec<usize>>,
     data: &[Vector<D>],
 ) {
@@ -323,18 +348,6 @@ mod tests {
             .iter()
             .map(|s| (*s).into())
             .collect::<Vec<Vector<2>>>()
-    }
-
-    fn search_and_print<const D: usize>(
-        query: &Vector<D>,
-        data: &[Vector<D>],
-        tree: &KdTree<D>,
-    ) {
-        let (argmin, distance) = tree.search(query);
-        match argmin {
-            None => info!("Nearest element with query {:?} not found.", query),
-            Some(i) => info!("query = {:?}, found = {:?}, distance = {}", query, data[i], distance),
-        }
     }
 
     #[test]
@@ -459,7 +472,6 @@ mod tests {
         let vecs = to_vecs(&raw_data);
         let tree = KdTree::new(&vecs, 2);
 
-        tree.print();
         let leaf_index = find_leaf(&Vector::<2>::new(10., 15.), &tree.boundaries);
         assert_eq!(leaf_index, 23);
 
@@ -508,7 +520,6 @@ mod tests {
         let leaf_size = 2;
 
         let tree = KdTree::new(&vecs, leaf_size);
-        tree.print();
         for query in vecs.iter() {
             let (argmin, distance) = tree.search(query);
             assert_eq!(vecs[argmin.unwrap()], *query);
@@ -548,7 +559,6 @@ mod tests {
         let leaf_size = 1;
 
         let tree = KdTree::new(&vecs, leaf_size);
-        tree.print();
         for query in vecs.iter() {
             let (argmin, distance) = tree.search(query);
             assert_eq!(vecs[argmin.unwrap()], *query);
@@ -648,8 +658,7 @@ mod tests {
         let leaf_size = 1;
         let vecs = to_vecs(&raw_data);
         let tree = KdTree::new(&vecs, leaf_size);
-        tree.print();
-        search_and_print(&Vector::<2>::new(0., -4.), &vecs, &tree);
+        tree.search(&Vector::<2>::new(0., -4.));
     }
 
     #[test]
@@ -670,8 +679,7 @@ mod tests {
         let leaf_size = 2;
         let vecs = to_vecs(&raw_data);
         let tree = KdTree::new(&vecs, leaf_size);
-        tree.print();
-        search_and_print(&Vector::<2>::new(0., -4.), &vecs, &tree);
+        tree.search(&Vector::<2>::new(0., -4.));
     }
 
     #[test]
@@ -707,6 +715,13 @@ mod tests {
 
     #[test]
     fn test_find_dim() {
+        assert_eq!(find_dim::<2>(1), 0);
+        assert_eq!(find_dim::<2>(2), 1);
+        assert_eq!(find_dim::<2>(3), 1);
+        assert_eq!(find_dim::<2>(4), 0);
+        assert_eq!(find_dim::<2>(5), 0);
+        assert_eq!(find_dim::<2>(10), 1);
+
         assert_eq!(find_dim::<4>(1), 0);
         assert_eq!(find_dim::<4>(2), 1);
         assert_eq!(find_dim::<4>(3), 1);
