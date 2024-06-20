@@ -142,15 +142,12 @@ impl<'a, const D: usize> KdTree<'a, D> {
         argmin: &Option<usize>,
         distance: f64,
     ) -> (Option<usize>, f64) {
-        println!("find_within_distance with node_index = {}", node_index);
         let mut argmin = *argmin;
         let mut distance = distance;
         let mut stack = Vec::from([(node_index, find_dim::<D>(node_index))]);
         while stack.len() != 0 {
             let (node_index, dim) = stack.pop().unwrap();
-            println!("node_index = {}  dim = {}", node_index, dim);
             let Some(&boundary) = self.boundaries.get(&node_index) else {
-                println!("  reached the leaf {}", node_index);
                 // If `node_index` is not in boundaries, `node_index` must be a leaf.
                 let indices = self.leaves.get(&node_index).unwrap();
                 // Update if the nearest element in the leaf is closer than the current
@@ -170,7 +167,6 @@ impl<'a, const D: usize> KdTree<'a, D> {
 
             // Boundary is farther than the nearest element
             if squared_diff(query[(dim, 0)], boundary) > distance {
-                println!("squared_diff > distance");
                 continue;
             }
             stack.push((far, next_dim));
@@ -190,7 +186,6 @@ impl<'a, const D: usize> KdTree<'a, D> {
         let mut distance = distance;
         while node_index > 1 {
             let the_other_side_index = the_other_side_index(node_index);
-            println!("the_other_side_index = {}", the_other_side_index);
             (argmin, distance) = self.find_within_distance(the_other_side_index, query, &argmin, distance);
             node_index = node_index / 2;
         }
@@ -211,18 +206,11 @@ impl<'a, const D: usize> KdTree<'a, D> {
             let (mut indices, node_index, dim) = stack.pop().unwrap();
 
             if indices.len() <= leaf_size {
-                println!("node_index = {}  leaf elements = {:?}",
-                    node_index, indices.iter().map(|&i| data[i]).collect::<Vec<Vector<D>>>());
                 leaves.insert(node_index, indices);
                 continue;
             }
 
             let (boundary, indices_l, indices_r) = divide(&mut indices, data, dim);
-            println!("dim = {}, boundary = {}", dim, boundary);
-            println!("divided into ");
-            println!("   L: {:?}", indices_l.iter().map(|&i| data[i]).collect::<Vec<Vector<D>>>());
-            println!("   R: {:?}", indices_r.iter().map(|&i| data[i]).collect::<Vec<Vector<D>>>());
-            println!("");
 
             boundaries.insert(node_index, boundary);
             let next_dim = (dim + 1) % D;
