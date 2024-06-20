@@ -157,8 +157,7 @@ impl<'a, const D: usize> KdTree<'a, D> {
                 // nearest
                 let (argmin_candidate, distance_candidate) = find_nearest(query, &indices, self.data);
                 if distance_candidate < distance {
-                    argmin = argmin_candidate;
-                    distance = distance_candidate;
+                    (argmin, distance) = (argmin_candidate, distance_candidate);
                 }
                 continue;
             };
@@ -187,14 +186,17 @@ impl<'a, const D: usize> KdTree<'a, D> {
         let mut node_index = node_index;
         let mut argmin = *argmin;
         let mut distance = distance;
+        let mut boundary_dim = (find_dim::<D>(node_index) + D - 1) % D;
         while node_index > 1 {
             let the_other_side_index = the_other_side_index(node_index);
             let parent_index = node_index / 2;
-            let boundary_dim = find_dim::<D>(parent_index);
             let &boundary = self.boundaries.get(&parent_index).unwrap();
             if distance > distance_to_boundary(query, boundary, boundary_dim) {
                 (argmin, distance) = self.find_within_distance(the_other_side_index, query, &argmin, distance);
             }
+            // If we simply write `(boundary_dim - 1) % D` this will overflow
+            // in case boundary_dim = 0 so we need to add D
+            boundary_dim = (boundary_dim + D - 1) % D;
             node_index = parent_index;
         }
         (argmin, distance)
