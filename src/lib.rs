@@ -44,7 +44,6 @@ fn divide<const D: usize>(
 
 pub struct KdTree<'a, const D: usize> {
     data: &'a [Vector<D>],
-    leaf_size: usize,
     /// Maps a node_index to a boundary value
     boundaries: BTreeMap::<usize, f64>,
     /// Maps a node_index (must be a leaf) to data indices in the leaf
@@ -72,6 +71,10 @@ fn calc_depth(node_index: usize) -> usize {
 fn find_dim<const D: usize>(node_index: usize) -> usize {
     assert!(node_index > 0);
     calc_depth(node_index) % D
+}
+
+fn distance_to_boundary<const D: usize>(query: &Vector<D>, boundary: f64, dim: usize) -> f64 {
+    squared_diff(query[(dim, 0)], boundary)
 }
 
 fn children_near_far(query_element: f64, boundary: f64, node_index: usize) -> (usize, usize) {
@@ -166,7 +169,7 @@ impl<'a, const D: usize> KdTree<'a, D> {
             stack.push((near, next_dim));
 
             // Boundary is farther than the nearest element
-            if squared_diff(query[(dim, 0)], boundary) > distance {
+            if distance_to_boundary(query, boundary, dim) > distance {
                 continue;
             }
             stack.push((far, next_dim));
@@ -186,8 +189,13 @@ impl<'a, const D: usize> KdTree<'a, D> {
         let mut distance = distance;
         while node_index > 1 {
             let the_other_side_index = the_other_side_index(node_index);
-            (argmin, distance) = self.find_within_distance(the_other_side_index, query, &argmin, distance);
-            node_index = node_index / 2;
+            let parent_index = node_index / 2;
+            let boundary_dim = find_dim::<D>(parent_index);
+            let &boundary = self.boundaries.get(&parent_index).unwrap();
+            if distance > distance_to_boundary(query, boundary, boundary_dim) {
+                (argmin, distance) = self.find_within_distance(the_other_side_index, query, &argmin, distance);
+            }
+            node_index = parent_index;
         }
         (argmin, distance)
     }
@@ -217,7 +225,7 @@ impl<'a, const D: usize> KdTree<'a, D> {
             stack.push((indices_l, node_index * 2 + 0, next_dim));
             stack.push((indices_r, node_index * 2 + 1, next_dim));
         }
-        KdTree { data, leaf_size, boundaries, leaves }
+        KdTree { data, boundaries, leaves }
     }
 
     pub fn print(&self) {
