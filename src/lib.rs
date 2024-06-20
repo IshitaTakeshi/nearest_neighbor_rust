@@ -31,7 +31,7 @@ fn divide<const D: usize>(
         d1[dim].partial_cmp(&d2[dim]).unwrap()
     };
 
-    indices.sort_by(cmp);
+    indices.sort_unstable_by(cmp);
 
     let mut k = indices.len() / 2;
     while k > 0 && data[indices[k]][dim] == data[indices[k-1]][dim] {
@@ -45,7 +45,9 @@ fn divide<const D: usize>(
 pub struct KdTree<'a, const D: usize> {
     data: &'a [Vector<D>],
     leaf_size: usize,
+    /// Maps a node_index to a boundary value
     boundaries: BTreeMap::<usize, f64>,
+    /// Maps a node_index (must be a leaf) to data indices in the leaf
     leaves: BTreeMap::<usize, Vec<usize>>,
 }
 
@@ -56,15 +58,20 @@ fn panic_leaf_node_not_found<const D: usize>(query: &Vector<D>, leaf_index: usiz
         Report the bug to the repository owner.", query, leaf_index)
 }
 
-fn find_dim<const D: usize>(node_index: usize) -> usize {
+fn calc_depth(node_index: usize) -> usize {
     assert!(node_index > 0);
     let mut i = 2;
-    let mut dim = 0;
+    let mut depth = 0;
     while i <= node_index {
         i *= 2;
-        dim = (dim + 1) % D;
+        depth += 1;
     }
-    dim
+    depth
+}
+
+fn find_dim<const D: usize>(node_index: usize) -> usize {
+    assert!(node_index > 0);
+    calc_depth(node_index) % D
 }
 
 fn children_near_far(query_element: f64, boundary: f64, node_index: usize) -> (usize, usize) {
@@ -149,13 +156,57 @@ fn find_nearest_in_other_areas<const D: usize>(
     (argmin, distance)
 }
 
+// Remove indices that correspond to the same data value, for example,
+// the data and their indices below
+//
+// index   data
+// 0       [13., 1.],
+// 1       [13., 1.],
+// 2       [13., 10.],
+// 3       [13., 10.],
+//
+// must be summarized into
+//
+// index   data
+// 0       [13., 1.],
+// 2       [13., 10.],
+//
+//
+// We need this procedure to make any data element fit in a leaf.
+// If the data contains seven duplicated data elements and the leaf size
+// is four, duplicated elements cannot fit in a leaf.
+// If you can certainly assume that data does not contain any duplicated
+// elements, you can just stop using this function and init indices as
+// let indices = (0..data.len()).collect::<Vec<usize>>();
+fn non_duplicate_indices<const D: usize>(data: &[Vector<D>]) -> Vec<usize> {
+    let cmp = |i1: &usize, i2: &usize| -> Ordering {
+        for dim in 0..D {
+            let d1 = &data[*i1][dim];
+            let d2 = &data[*i2][dim];
+            let ord = d1.partial_cmp(&d2).unwrap();
+            if ord != Ordering::Equal {
+                return ord;
+            }
+        }
+        return Ordering::Equal;
+    };
+
+    let mut indices = (0..data.len()).collect::<Vec<usize>>();
+    indices.sort_by(cmp);
+    let cmp = |i1: &mut usize, i2: &mut usize| -> bool {
+        data[*i1] == data[*i2]
+    };
+    indices.dedup_by(cmp);
+    indices
+}
+
 impl<'a, const D: usize> KdTree<'a, D> {
     pub fn new(
         data: &'a [Vector<D>],
         leaf_size: usize,
     ) -> Self {
         assert!(data.len() >= leaf_size);
-        let indices = (0..data.len()).collect::<Vec<usize>>();
+        let indices = non_duplicate_indices(data);
         let mut boundaries = BTreeMap::<usize, f64>::new();
         let mut leaves = BTreeMap::<usize, Vec<usize>>::new();
 
@@ -249,7 +300,7 @@ fn print_tree<const D: usize>(
     while stack.len() != 0 {
         let (node_index, dim) = stack.pop().unwrap();
 
-        let depth = f64::log2(node_index as f64) as usize;
+        let depth = calc_depth(node_index);
         if let Some(indices) = leaves.get(&node_index) {
             info!("{} {:3}  {:?}", " ".repeat(2 * depth), node_index,
                 indices.iter().map(|&i| data[i]).collect::<Vec<Vector<D>>>());
@@ -338,7 +389,7 @@ mod tests {
         let data = to_vecs(&raw_data);
         let mut indices = (0..data.len()).collect();
         let (boundary, indices_l, indices_r) = divide(&mut indices, &data, dim);
-        assert_eq!(boundary, 16.);
+        assert_eq!(boundary, 15.);
         for &i in indices_l.iter() {
             assert!(data[i][dim] < boundary);
         }
@@ -378,7 +429,7 @@ mod tests {
 
     #[test]
     fn test_find_leaf() {
-        let raw_data: [[f64; 2]; 25] = [
+        let raw_data: [[f64; 2]; 28] = [
             [2., 2.],
             [3., 7.],
             [3., 13.],
@@ -394,11 +445,14 @@ mod tests {
             [11., 4.],
             [11., 6.],
             [13., 1.],
+            [13., 1.],
             [13., 10.],
             [13., 16.],
             [14., 7.],
             [14., 19.],
             [15., 4.],
+            [15., 12.],
+            [15., 12.],
             [15., 12.],
             [17., 17.],
             [18., 5.],
@@ -409,8 +463,9 @@ mod tests {
         let vecs = to_vecs(&raw_data);
         let tree = KdTree::new(&vecs, 2);
 
+        tree.print();
         let leaf_index = find_leaf(&Vector::<2>::new(10., 15.), &tree.boundaries);
-        assert_eq!(leaf_index, 22);
+        assert_eq!(leaf_index, 23);
 
         let leaf_index = find_leaf(&Vector::<2>::new(11., 13.), &tree.boundaries);
         assert_eq!(leaf_index, 28);
@@ -419,37 +474,37 @@ mod tests {
         assert_eq!(leaf_index, 16);
 
         let leaf_index = find_leaf(&Vector::<2>::new(8., 17.), &tree.boundaries);
-        assert_eq!(leaf_index, 22);
+        assert_eq!(leaf_index, 23);
     }
 
     #[test]
     fn test_search_leaf_size_2() {
         let raw_data: [[f64; 2]; 25] = [
-            [2., 2.],
-            [3., 7.],
-            [3., 13.],
-            [3., 18.],
-            [5., 10.],
-            [6., 15.],
-            [7., 6.],
-            [8., 3.],
-            [8., 18.],
-            [10., 8.],
-            [10., 11.],
-            [10., 14.],
-            [11., 4.],
-            [11., 6.],
-            [13., 1.],
-            [13., 10.],
-            [13., 16.],
-            [14., 7.],
-            [14., 19.],
-            [15., 4.],
-            [15., 12.],
-            [17., 17.],
-            [18., 5.],
-            [18., 8.],
-            [18., 10.],
+            [2., 2.],    // 0
+            [3., 7.],    // 1
+            [3., 13.],   // 2
+            [3., 18.],   // 3
+            [5., 10.],   // 4
+            [6., 15.],   // 5
+            [7., 6.],    // 6
+            [8., 3.],    // 7
+            [8., 18.],   // 8
+            [10., 8.],   // 9
+            [10., 11.],  // 10
+            [10., 14.],  // 11
+            [11., 4.],   // 12
+            [11., 6.],   // 13
+            [13., 1.],   // 14
+            [13., 10.],  // 15
+            [13., 16.],  // 16
+            [14., 7.],   // 17
+            [14., 19.],  // 18
+            [15., 4.],   // 19
+            [15., 12.],  // 20
+            [17., 17.],  // 21
+            [18., 5.],   // 22
+            [18., 8.],   // 23
+            [18., 10.],  // 24
         ];
 
         let vecs = to_vecs(&raw_data);
@@ -458,57 +513,38 @@ mod tests {
 
         let tree = KdTree::new(&vecs, leaf_size);
         tree.print();
-        // for query in data.iter() {
-        //     search_and_print(query, data, &tree);
-        // }
+        for query in vecs.iter() {
+            let (argmin, distance) = tree.search(query);
+            assert_eq!(vecs[argmin.unwrap()], *query);
+            assert_eq!(distance, 0.);
+        }
 
-        search_and_print(&Vector::<2>::new(10., 15.), &vecs, &tree);
-        // search_and_print(&Vector::<2>::new(14., 13.), &boundaries, &leaves, data);
-        // search_and_print(&Vector::<2>::new(10., 11.), &boundaries, &leaves, data);
-        // search_and_print(&Vector::<2>::new(2., 11.), &boundaries, &leaves, data);
+        let (argmin, distance) = tree.search(&Vector::<2>::new(10., 15.));
+        assert_eq!(argmin, Some(11));
+        assert_eq!(distance, 1.);
+
+        let (argmin, distance) = tree.search(&Vector::<2>::new(6., 3.));
+        assert_eq!(argmin, Some(7));
+        assert_eq!(distance, 4.);
+
+        let (argmin, distance) = tree.search(&Vector::<2>::new(5., 12.));
+        assert_eq!(argmin, Some(4));
+        assert_eq!(distance, 4.);
     }
 
     #[test]
     fn test_search_leaf_size_1() {
-        let raw_data: [[f64; 2]; 25] = [
-            [2., 2.],
-            [3., 7.],
-            [3., 13.],
-            [3., 18.],
-            [5., 10.],
-            [6., 15.],
-            [7., 6.],
-            [8., 3.],
-            [8., 18.],
-            [10., 8.],
-            [10., 11.],
-            [10., 14.],
-            [11., 4.],
-            [11., 6.],
-            [13., 1.],
-            [13., 10.],
-            [13., 16.],
-            [14., 7.],
-            [14., 19.],
-            [15., 4.],
-            [15., 12.],
-            [17., 17.],
-            [18., 5.],
-            [18., 8.],
-            [18., 10.],
-        ];
-
         let raw_data: [[f64; 2]; 10] = [
-            [-4., 5.],
-            [-3., -5.],
-            [-3., -3.],
-            [-3., 2.],
-            [1., 1.],
-            [1., 3.],
-            [2., -2.],
-            [3., 2.],
-            [3., 4.],
-            [5., -2.],
+            [-4., 5.],   //  0
+            [-3., -5.],  //  1
+            [-3., -3.],  //  2
+            [-3., 2.],   //  3
+            [1., 1.],    //  4
+            [1., 3.],    //  5
+            [2., -2.],   //  6
+            [3., 2.],    //  7
+            [3., 4.],    //  8
+            [5., -2.],   //  9
         ];
 
         let vecs = to_vecs(&raw_data);
@@ -517,16 +553,81 @@ mod tests {
 
         let tree = KdTree::new(&vecs, leaf_size);
         tree.print();
-        // for query in data.iter() {
-        //     search_and_print(query, data, &tree);
-        // }
+        for query in vecs.iter() {
+            let (argmin, distance) = tree.search(query);
+            assert_eq!(vecs[argmin.unwrap()], *query);
+            assert_eq!(distance, 0.);
+        }
 
-        println!("tree.leaves:");
-        println!("{:?}", tree.leaves);
-        search_and_print(&Vector::<2>::new(10., 15.), &vecs, &tree);
-        // search_and_print(&Vector::<2>::new(14., 13.), &boundaries, &leaves, data);
-        // search_and_print(&Vector::<2>::new(10., 11.), &boundaries, &leaves, data);
-        // search_and_print(&Vector::<2>::new(2., 11.), &boundaries, &leaves, data);
+        let (argmin, distance) = tree.search(&Vector::<2>::new(0., -2.));
+        assert_eq!(argmin, Some(6));
+        assert_eq!(distance, 4.);
+
+        let (argmin, distance) = tree.search(&Vector::<2>::new(-4., 1.));
+        assert_eq!(argmin, Some(3));
+        assert_eq!(distance, 2.);
+    }
+
+    #[test]
+    fn test_non_duplicate_indices() {
+        let raw_data: [[f64; 2]; 18] = [
+            [3., 1.],   // 0
+            [3., 1.],   // 1
+            [4., 5.],   // 2
+            [3., 1.],   // 3
+            [3., 1.],   // 4
+            [2., 3.],   // 5
+            [3., 3.],   // 6
+            [3., 3.],   // 7
+            [1., 1.],   // 8
+            [1., 1.],   // 9
+            [1., 3.],   // 10
+            [1., 3.],   // 11
+            [2., 3.],   // 12
+            [2., 3.],   // 13
+            [2., 1.],   // 14
+            [2., 3.],   // 15
+            [3., 1.],   // 16
+            [4., 1.],   // 17
+        ];
+
+        // After sorting
+        // let raw_data: [[f64; 2]; 18] = [
+        //     [1., 1.],   // 8
+        //     [1., 1.],   // 9
+        //     [1., 3.],   // 10
+        //     [1., 3.],   // 11
+        //     [2., 1.],   // 14
+        //     [2., 3.],   // 5
+        //     [2., 3.],   // 12
+        //     [2., 3.],   // 13
+        //     [2., 3.],   // 15
+        //     [3., 1.],   // 0
+        //     [3., 1.],   // 1
+        //     [3., 1.],   // 3
+        //     [3., 1.],   // 4
+        //     [3., 1.],   // 16
+        //     [3., 3.],   // 6
+        //     [3., 3.],   // 7
+        //     [4., 1.],   // 17
+        //     [4., 5.],   // 2
+        // ];
+
+        // After removing duplicates
+        // let raw_data: [[f64; 2]; 18] = [
+        //     [1., 1.],   // 8
+        //     [1., 3.],   // 10
+        //     [2., 1.],   // 14
+        //     [2., 3.],   // 5
+        //     [3., 1.],   // 0
+        //     [3., 3.],   // 6
+        //     [4., 1.],   // 17
+        //     [4., 5.],   // 2
+        // ];
+
+        let vecs = to_vecs(&raw_data);
+        let indices = non_duplicate_indices(&vecs);
+        assert_eq!(indices, Vec::<usize>::from([8, 10, 14, 5, 0, 6, 17, 2]));
     }
 
     #[test]
@@ -554,6 +655,7 @@ mod tests {
         tree.print();
         search_and_print(&Vector::<2>::new(0., -4.), &vecs, &tree);
     }
+
     #[test]
     fn test_find_nearest_in_other_areas() {
         let raw_data: [[f64; 2]; 11] = [
