@@ -82,78 +82,12 @@ fn children_near_far(query_element: f64, boundary: f64, node_index: usize) -> (u
     }
 }
 
-fn find_within_distance<const D: usize>(
-    node_index: usize,
-    query: &Vector<D>,
-    argmin: &Option<usize>,
-    distance: f64,
-    data: &[Vector<D>],
-    boundaries: &BTreeMap::<usize, f64>,
-    leaves: &BTreeMap::<usize, Vec<usize>>
-) -> (Option<usize>, f64) {
-    println!("find_within_distance with node_index = {}", node_index);
-    let mut argmin = *argmin;
-    let mut distance = distance;
-    let mut stack = Vec::from([(node_index, find_dim::<D>(node_index))]);
-    while stack.len() != 0 {
-        let (node_index, dim) = stack.pop().unwrap();
-        println!("node_index = {}  dim = {}", node_index, dim);
-        let Some(&boundary) = boundaries.get(&node_index) else {
-            println!("  reached the leaf {}", node_index);
-            // If `node_index` is not in boundaries, `node_index` must be a leaf.
-            let indices = leaves.get(&node_index).unwrap();
-            // Update if the nearest element in the leaf is closer than the current
-            // nearest
-            let (argmin_candidate, distance_candidate) = find_nearest(query, &indices, data);
-            if distance_candidate < distance {
-                argmin = argmin_candidate;
-                distance = distance_candidate;
-            }
-            continue;
-        };
-
-        let (near, far) = children_near_far(query[(dim, 0)], boundary, node_index);
-
-        let next_dim = (dim + 1) % D;
-        stack.push((near, next_dim));
-
-        // Boundary is farther than the nearest element
-        if squared_diff(query[(dim, 0)], boundary) > distance {
-            println!("squared_diff > distance");
-            continue;
-        }
-        stack.push((far, next_dim));
-    }
-    (argmin, distance)
-}
-
 fn the_other_side_index(node_index: usize) -> usize {
     if node_index % 2 == 0 {
         node_index + 1
     } else {
         node_index - 1
     }
-}
-
-fn find_nearest_in_other_areas<const D: usize>(
-    query: &Vector<D>,
-    argmin: &Option<usize>,
-    distance: f64,
-    node_index: usize,
-    data: &[Vector<D>],
-    boundaries: &BTreeMap::<usize, f64>,
-    leaves: &BTreeMap::<usize, Vec<usize>>
-) -> (Option<usize>, f64) {
-    let mut node_index = node_index;
-    let mut argmin = *argmin;
-    let mut distance = distance;
-    while node_index > 1 {
-        let the_other_side_index = the_other_side_index(node_index);
-        println!("the_other_side_index = {}", the_other_side_index);
-        (argmin, distance) = find_within_distance(the_other_side_index, query, &argmin, distance, data, boundaries, leaves);
-        node_index = node_index / 2;
-    }
-    (argmin, distance)
 }
 
 // Remove indices that correspond to the same data value, for example,
@@ -201,6 +135,68 @@ fn non_duplicate_indices<const D: usize>(data: &[Vector<D>]) -> Vec<usize> {
 }
 
 impl<'a, const D: usize> KdTree<'a, D> {
+    fn find_within_distance(
+        &self,
+        node_index: usize,
+        query: &Vector<D>,
+        argmin: &Option<usize>,
+        distance: f64,
+    ) -> (Option<usize>, f64) {
+        println!("find_within_distance with node_index = {}", node_index);
+        let mut argmin = *argmin;
+        let mut distance = distance;
+        let mut stack = Vec::from([(node_index, find_dim::<D>(node_index))]);
+        while stack.len() != 0 {
+            let (node_index, dim) = stack.pop().unwrap();
+            println!("node_index = {}  dim = {}", node_index, dim);
+            let Some(&boundary) = self.boundaries.get(&node_index) else {
+                println!("  reached the leaf {}", node_index);
+                // If `node_index` is not in boundaries, `node_index` must be a leaf.
+                let indices = self.leaves.get(&node_index).unwrap();
+                // Update if the nearest element in the leaf is closer than the current
+                // nearest
+                let (argmin_candidate, distance_candidate) = find_nearest(query, &indices, self.data);
+                if distance_candidate < distance {
+                    argmin = argmin_candidate;
+                    distance = distance_candidate;
+                }
+                continue;
+            };
+
+            let (near, far) = children_near_far(query[(dim, 0)], boundary, node_index);
+
+            let next_dim = (dim + 1) % D;
+            stack.push((near, next_dim));
+
+            // Boundary is farther than the nearest element
+            if squared_diff(query[(dim, 0)], boundary) > distance {
+                println!("squared_diff > distance");
+                continue;
+            }
+            stack.push((far, next_dim));
+        }
+        (argmin, distance)
+    }
+
+    fn find_nearest_in_other_areas(
+        &self,
+        query: &Vector<D>,
+        argmin: &Option<usize>,
+        distance: f64,
+        node_index: usize,
+    ) -> (Option<usize>, f64) {
+        let mut node_index = node_index;
+        let mut argmin = *argmin;
+        let mut distance = distance;
+        while node_index > 1 {
+            let the_other_side_index = the_other_side_index(node_index);
+            println!("the_other_side_index = {}", the_other_side_index);
+            (argmin, distance) = self.find_within_distance(the_other_side_index, query, &argmin, distance);
+            node_index = node_index / 2;
+        }
+        (argmin, distance)
+    }
+
     pub fn new(
         data: &'a [Vector<D>],
         leaf_size: usize,
@@ -247,7 +243,7 @@ impl<'a, const D: usize> KdTree<'a, D> {
         };
 
         let (argmin, distance) = find_nearest(query, &indices, self.data);
-        find_nearest_in_other_areas(query, &argmin, distance, leaf_index, &self.data, &self.boundaries, &self.leaves)
+        self.find_nearest_in_other_areas(query, &argmin, distance, leaf_index)
     }
 }
 
