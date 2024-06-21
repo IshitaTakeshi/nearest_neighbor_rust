@@ -669,22 +669,31 @@ mod tests {
     #[test]
     fn test_find_nearest_in_other_areas() {
         let raw_data: [[f64; 2]; 11] = [
-            [-3., -1.],
-            [-3., 3.],
-            [-3., -3.],
-            [-1., -1.],
-            [-1., 3.],
-            [1., 3.],
-            [2., -3.],
-            [2., -1.],
-            [2., 3.],
-            [3., -1.],
-            [4., 1.],
+            [-3., -3.],   // 0
+            [-3., -1.],   // 1
+            [-3., 3.],    // 2
+            [-1., -1.],   // 3
+            [-1., 3.],    // 4
+            [1., 3.],     // 5
+            [2., -3.],    // 6
+            [2., -1.],    // 7
+            [2., 3.],     // 8
+            [3., -1.],    // 9
+            [4., 1.],     // 10
         ];
         let leaf_size = 2;
         let vecs = to_vecs(&raw_data);
         let tree = KdTree::new(&vecs, leaf_size);
-        tree.search(&Vector::<2>::new(0., -4.));
+
+        let query = Vector::<2>::new(0., -4.);
+        let (argmin, distance) = tree.search(&query);
+        assert_eq!(argmin, Some(6));
+        assert_eq!(distance, squared_euclidean(&query, &vecs[6]));
+
+        let query = Vector::<2>::new(0.9, -0.9);
+        let (argmin, distance) = tree.search(&query);
+        assert_eq!(argmin, Some(7));
+        assert_eq!(distance, squared_euclidean(&query, &vecs[7]));
     }
 
     #[test]
