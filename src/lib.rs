@@ -153,9 +153,7 @@ impl<'a, const D: usize> KdTree<'a, D> {
         let mut stack = Vec::from([(node_index, find_dim::<D>(node_index))]);
         while stack.len() != 0 {
             let (node_index, dim) = stack.pop().unwrap();
-            // let boundary_get_time = std::time::Instant::now();
             let maybe_boundary = self.boundaries.get(&node_index);
-            // println!("boundary_get_time = {:?}", boundary_get_time.elapsed());
 
             let Some(&boundary) = maybe_boundary else {
                 // let find_nearest_time = std::time::Instant::now();
@@ -166,17 +164,14 @@ impl<'a, const D: usize> KdTree<'a, D> {
                     argmin = candidate;
                     min_distance = distance;
                 }
-                // println!("find_nearest_time = {:?}", find_nearest_time.elapsed());
                 continue;
             };
 
-            // let push_time = std::time::Instant::now();
             let (near, far) = children_near_far(query[(dim, 0)], boundary, node_index);
 
             let next_dim = (dim + 1) % D;
             stack.push((near, next_dim));
 
-            // println!("push_time = {:?}", push_time.elapsed());
             // If the nearest element is closer than the boundary, we don't
             // need to search the farther side than the boundary.
             if min_distance < distance_to_boundary(query, boundary, dim) {
@@ -274,11 +269,13 @@ fn squared_diff(a: f64, b: f64) -> f64 {
     (a - b) * (a - b)
 }
 
+#[inline]
 fn squared_euclidean<const D: usize>(a: &Vector<D>, b: &Vector<D>) -> f64 {
     let d = a - b;
     d.dot(&d)
 }
 
+#[inline]
 fn find_nearest<const D: usize>(
     query: &Vector<D>,
     indices: &[usize],
