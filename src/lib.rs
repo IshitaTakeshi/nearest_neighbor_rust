@@ -53,20 +53,16 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use crate::alloc::string::ToString;
 
-use nalgebra::base::dimension::Const;
-use nalgebra::{ArrayStorage, U1};
-
-// TODO Remove this and use `nalgebra::SVector` instead
-pub type Vector<const D: usize> = nalgebra::Matrix<f64, Const<D>, U1, ArrayStorage<f64, D, 1>>;
+use nalgebra::SVector;
 
 fn divide<const D: usize>(
     indices: &mut Vec<usize>,
-    data: &[Vector<D>],
+    data: &[SVector<f64, D>],
     dim: usize,
 ) -> (f64, Vec<usize>, Vec<usize>) {
     let cmp = |i1: &usize, i2: &usize| -> Ordering {
-        let d1: &Vector<D> = &data[*i1];
-        let d2: &Vector<D> = &data[*i2];
+        let d1: &SVector<f64, D> = &data[*i1];
+        let d2: &SVector<f64, D> = &data[*i2];
         d1[dim].partial_cmp(&d2[dim]).unwrap()
     };
 
@@ -82,7 +78,7 @@ fn divide<const D: usize>(
 }
 
 #[inline]
-fn panic_leaf_node_not_found<const D: usize>(query: &Vector<D>, leaf_index: usize) -> ! {
+fn panic_leaf_node_not_found<const D: usize>(query: &SVector<f64, D>, leaf_index: usize) -> ! {
     panic!(
         "Leaf node corresponding to query = {:?} node_index = {} not found. \
         There's something wrong in the tree construction. \
@@ -108,7 +104,7 @@ fn find_dim<const D: usize>(node_index: usize) -> usize {
 }
 
 #[inline]
-fn squared_euclidean<const D: usize>(a: &Vector<D>, b: &Vector<D>) -> f64 {
+fn squared_euclidean<const D: usize>(a: &SVector<f64, D>, b: &SVector<f64, D>) -> f64 {
     let d = a - b;
     d.dot(&d)
 }
@@ -119,7 +115,7 @@ fn squared_diff(a: f64, b: f64) -> f64 {
 }
 
 #[inline]
-fn distance_to_boundary<const D: usize>(query: &Vector<D>, boundary: f64, dim: usize) -> f64 {
+fn distance_to_boundary<const D: usize>(query: &SVector<f64, D>, boundary: f64, dim: usize) -> f64 {
     squared_diff(query[(dim, 0)], boundary)
 }
 
@@ -143,9 +139,9 @@ fn the_other_side_index(node_index: usize) -> usize {
 
 #[inline]
 fn find_nearest<const D: usize>(
-    query: &Vector<D>,
+    query: &SVector<f64, D>,
     indices: &[usize],
-    data: &[Vector<D>],
+    data: &[SVector<f64, D>],
 ) -> (Option<usize>, f64) {
     let mut min_distance = f64::INFINITY;
     let mut argmin = None;
@@ -160,7 +156,7 @@ fn find_nearest<const D: usize>(
 }
 
 #[inline]
-fn find_leaf<const D: usize>(query: &Vector<D>, boundaries: &VecMap<f64>) -> usize {
+fn find_leaf<const D: usize>(query: &SVector<f64, D>, boundaries: &VecMap<f64>) -> usize {
     let mut node_index = 1;
     let mut dim: usize = 0;
     while let Some(&boundary) = boundaries.get(&node_index) {
@@ -177,7 +173,7 @@ fn find_leaf<const D: usize>(query: &Vector<D>, boundaries: &VecMap<f64>) -> usi
 fn print_tree<const D: usize>(
     boundaries: &VecMap<f64>,
     leaves: &BTreeMap<usize, Vec<usize>>,
-    data: &[Vector<D>],
+    data: &[SVector<f64, D>],
 ) {
     let mut stack = Vec::from([(1, 0)]);
     while stack.len() != 0 {
@@ -186,7 +182,7 @@ fn print_tree<const D: usize>(
         let depth = calc_depth(node_index);
         if let Some(indices) = leaves.get(&node_index) {
             info!("{} {:3}  {:?}", " ".repeat(2 * depth), node_index,
-                indices.iter().map(|&i| data[i]).collect::<Vec<Vector<D>>>());
+                indices.iter().map(|&i| data[i]).collect::<Vec<SVector<f64, D>>>());
             continue;
         };
 
@@ -224,7 +220,7 @@ fn print_tree<const D: usize>(
 // If you can certainly assume that data does not contain any duplicated
 // element, you can just stop using this function and init indices as
 // let indices = (0..data.len()).collect::<Vec<usize>>();
-fn non_duplicate_indices<const D: usize>(data: &[Vector<D>]) -> Vec<usize> {
+fn non_duplicate_indices<const D: usize>(data: &[SVector<f64, D>]) -> Vec<usize> {
     let cmp = |i1: &usize, i2: &usize| -> Ordering {
         for dim in 0..D {
             let d1 = &data[*i1][dim];
@@ -248,7 +244,7 @@ fn non_duplicate_indices<const D: usize>(data: &[Vector<D>]) -> Vec<usize> {
 
 /// KD-Tree for nearest neighbor search.
 pub struct KdTree<'a, const D: usize> {
-    data: &'a [Vector<D>],
+    data: &'a [SVector<f64, D>],
     /// Maps a node_index to a boundary value
     boundaries: VecMap::<f64>,
     /// Maps a node_index (must be a leaf) to data indices in the leaf
@@ -259,7 +255,7 @@ impl<'a, const D: usize> KdTree<'a, D> {
     fn find_within_distance(
         &self,
         node_index: usize,
-        query: &Vector<D>,
+        query: &SVector<f64, D>,
         argmin: &Option<usize>,
         min_distance: f64,
     ) -> (Option<usize>, f64) {
@@ -299,7 +295,7 @@ impl<'a, const D: usize> KdTree<'a, D> {
 
     fn find_nearest_in_other_areas(
         &self,
-        query: &Vector<D>,
+        query: &SVector<f64, D>,
         argmin: &Option<usize>,
         distance: f64,
         node_index: usize,
@@ -326,7 +322,7 @@ impl<'a, const D: usize> KdTree<'a, D> {
     /// Constructs a new KD-Tree from the given slice of `nalgebra::SVector`
     /// and `leaf_size`.
     pub fn new(
-        data: &'a [Vector<D>],
+        data: &'a [SVector<f64, D>],
         leaf_size: usize,
     ) -> Self {
         assert!(leaf_size > 0);
@@ -360,7 +356,7 @@ impl<'a, const D: usize> KdTree<'a, D> {
     /// Returns the index of the nearest item from the given query in the target data,
     /// along with the distance from the query to the nearest item.
     /// The index is None if the target data is empty.
-    pub fn search(&self, query: &Vector<D>) -> (Option<usize>, f64) {
+    pub fn search(&self, query: &SVector<f64, D>) -> (Option<usize>, f64) {
         // let t1 = awkernel_lib::delay::uptime();
         let leaf_index = find_leaf(query, &self.boundaries);
 
@@ -391,11 +387,11 @@ mod tests {
 
     use rand::distributions::{Distribution, Uniform};
 
-    fn to_vecs(data: &[[f64; 2]]) -> Vec<Vector<2>> {
+    fn to_vecs(data: &[[f64; 2]]) -> Vec<SVector<f64, 2>> {
         data
             .iter()
             .map(|&s| s.into())
-            .collect::<Vec<Vector<2>>>()
+            .collect::<Vec<SVector<f64, 2>>>()
     }
 
     #[test]
@@ -520,16 +516,16 @@ mod tests {
         let vecs = to_vecs(&raw_data);
         let tree = KdTree::new(&vecs, 2);
 
-        let leaf_index = find_leaf(&Vector::<2>::new(10., 15.), &tree.boundaries);
+        let leaf_index = find_leaf(&SVector::<f64, 2>::new(10., 15.), &tree.boundaries);
         assert_eq!(leaf_index, 23);
 
-        let leaf_index = find_leaf(&Vector::<2>::new(11., 13.), &tree.boundaries);
+        let leaf_index = find_leaf(&SVector::<f64, 2>::new(11., 13.), &tree.boundaries);
         assert_eq!(leaf_index, 28);
 
-        let leaf_index = find_leaf(&Vector::<2>::new(3., 2.), &tree.boundaries);
+        let leaf_index = find_leaf(&SVector::<f64, 2>::new(3., 2.), &tree.boundaries);
         assert_eq!(leaf_index, 16);
 
-        let leaf_index = find_leaf(&Vector::<2>::new(8., 17.), &tree.boundaries);
+        let leaf_index = find_leaf(&SVector::<f64, 2>::new(8., 17.), &tree.boundaries);
         assert_eq!(leaf_index, 23);
     }
 
@@ -574,15 +570,15 @@ mod tests {
             assert_eq!(distance, 0.);
         }
 
-        let (argmin, distance) = tree.search(&Vector::<2>::new(10., 15.));
+        let (argmin, distance) = tree.search(&SVector::<f64, 2>::new(10., 15.));
         assert_eq!(argmin, Some(11));
         assert_eq!(distance, 1.);
 
-        let (argmin, distance) = tree.search(&Vector::<2>::new(6., 3.));
+        let (argmin, distance) = tree.search(&SVector::<f64, 2>::new(6., 3.));
         assert_eq!(argmin, Some(7));
         assert_eq!(distance, 4.);
 
-        let (argmin, distance) = tree.search(&Vector::<2>::new(5., 12.));
+        let (argmin, distance) = tree.search(&SVector::<f64, 2>::new(5., 12.));
         assert_eq!(argmin, Some(4));
         assert_eq!(distance, 4.);
     }
@@ -613,11 +609,11 @@ mod tests {
             assert_eq!(distance, 0.);
         }
 
-        let (argmin, distance) = tree.search(&Vector::<2>::new(0., -2.));
+        let (argmin, distance) = tree.search(&SVector::<f64, 2>::new(0., -2.));
         assert_eq!(argmin, Some(6));
         assert_eq!(distance, 4.);
 
-        let (argmin, distance) = tree.search(&Vector::<2>::new(-4., 1.));
+        let (argmin, distance) = tree.search(&SVector::<f64, 2>::new(-4., 1.));
         assert_eq!(argmin, Some(3));
         assert_eq!(distance, 2.);
     }
@@ -696,7 +692,7 @@ mod tests {
         let vecs = to_vecs(&raw_data);
         let tree = KdTree::new(&vecs, leaf_size);
 
-        let query = Vector::<2>::new(-3., 2.);
+        let query = SVector::<f64, 2>::new(-3., 2.);
         let (argmin, distance) = tree.search(&query);
         assert_eq!(argmin, Some(1));
         assert_eq!(distance, squared_euclidean(&query, &vecs[1]));
@@ -727,7 +723,7 @@ mod tests {
         let vecs = to_vecs(&raw_data);
         let tree = KdTree::new(&vecs, leaf_size);
 
-        let query = Vector::<2>::new(0., -4.);
+        let query = SVector::<f64, 2>::new(0., -4.);
         let (argmin, distance) = tree.search(&query);
         assert_eq!(argmin, Some(10));
         assert_eq!(distance, squared_euclidean(&query, &vecs[10]));
@@ -752,12 +748,12 @@ mod tests {
         let vecs = to_vecs(&raw_data);
         let tree = KdTree::new(&vecs, leaf_size);
 
-        let query = Vector::<2>::new(0., -4.);
+        let query = SVector::<f64, 2>::new(0., -4.);
         let (argmin, distance) = tree.search(&query);
         assert_eq!(argmin, Some(6));
         assert_eq!(distance, squared_euclidean(&query, &vecs[6]));
 
-        let query = Vector::<2>::new(0.9, -0.9);
+        let query = SVector::<f64, 2>::new(0.9, -0.9);
         let (argmin, distance) = tree.search(&query);
         assert_eq!(argmin, Some(7));
         assert_eq!(distance, squared_euclidean(&query, &vecs[7]));
@@ -770,14 +766,14 @@ mod tests {
 
         const D: usize = 5;
         let mut random_uniform_vector = || {
-            let mut v = Vector::<D>::default();
+            let mut v = SVector::<f64, D>::default();
             for i in 0..D {
                 v[i] = between.sample(&mut rng) as f64;
             }
             v
         };
 
-        let vecs = (0..5000).map(|_| random_uniform_vector()).collect::<Vec<Vector<D>>>();
+        let vecs = (0..5000).map(|_| random_uniform_vector()).collect::<Vec<SVector<f64, D>>>();
 
         let tree = KdTree::new(&vecs, 2);
         let indices: Vec<usize> = (0..vecs.len()).collect();
