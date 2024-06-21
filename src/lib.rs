@@ -1,3 +1,38 @@
+//! # KD-Tree based Nearest neighbor search in Rust
+//!
+//! ## Example
+//!
+//! ```
+//! use nearest_neighbor::KdTree;
+//! use nalgebra::SVector;
+//!
+//! let raw_data: [[f64; 2]; 11] = [
+//!     [-3., -3.],   // 0
+//!     [-3., -1.],   // 1
+//!     [-3., 3.],    // 2
+//!     [-1., -1.],   // 3
+//!     [-1., 3.],    // 4
+//!     [1., 3.],     // 5
+//!     [2., -3.],    // 6
+//!     [2., -1.],    // 7
+//!     [2., 3.],     // 8
+//!     [3., -1.],    // 9
+//!     [4., 1.],     // 10
+//! ];
+//!
+//! let data: Vec<SVector<f64, 2>> = raw_data.iter().map(|&e| e.into()).collect();
+//! let leaf_size = 2;
+//!
+//! let tree = KdTree::new(&data, leaf_size);
+//!
+//! let query = SVector::<f64, 2>::new(0., -4.);
+//!
+//! // Searches the nearest element from the query in the target data.
+//! let (argmin, distance) = tree.search(&query);
+//! assert_eq!(argmin, Some(6));  // Sixth element [2, -3] in `data` is the nearest
+//! assert_eq!(distance, 5.);     // Squared euclidean distance from (0, -4) to (2, -3)
+//! ```
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(not(feature = "std"))]
@@ -21,6 +56,7 @@ use crate::alloc::string::ToString;
 use nalgebra::base::dimension::Const;
 use nalgebra::{ArrayStorage, U1};
 
+// TODO Remove this and use `nalgebra::SVector` instead
 pub type Vector<const D: usize> = nalgebra::Matrix<f64, Const<D>, U1, ArrayStorage<f64, D, 1>>;
 
 fn divide<const D: usize>(
@@ -165,8 +201,9 @@ fn print_tree<const D: usize>(
     }
 }
 
-// Remove indices that correspond to the same data value, for example,
-// the data and their indices below
+// Remove indices that correspond to the same data value.
+//
+// The data and their indices below
 //
 // index   data
 // 0       [13., 1.],
@@ -182,10 +219,10 @@ fn print_tree<const D: usize>(
 //
 //
 // We need this procedure to make any data element fit in a leaf.
-// If the data contains seven duplicated data elements and the leaf size
-// is four, duplicated elements cannot fit in a leaf.
+// If the data contains more duplicated data elements than the leaf size,
+// duplicated elements cannot fit in a leaf.
 // If you can certainly assume that data does not contain any duplicated
-// elements, you can just stop using this function and init indices as
+// element, you can just stop using this function and init indices as
 // let indices = (0..data.len()).collect::<Vec<usize>>();
 fn non_duplicate_indices<const D: usize>(data: &[Vector<D>]) -> Vec<usize> {
     let cmp = |i1: &usize, i2: &usize| -> Ordering {
@@ -209,6 +246,7 @@ fn non_duplicate_indices<const D: usize>(data: &[Vector<D>]) -> Vec<usize> {
     indices
 }
 
+/// KD-Tree for nearest neighbor search.
 pub struct KdTree<'a, const D: usize> {
     data: &'a [Vector<D>],
     /// Maps a node_index to a boundary value
@@ -285,11 +323,13 @@ impl<'a, const D: usize> KdTree<'a, D> {
         (argmin, distance)
     }
 
+    /// Constructs a new KD-Tree from the given slice of `nalgebra::SVector`
+    /// and `leaf_size`.
     pub fn new(
         data: &'a [Vector<D>],
         leaf_size: usize,
     ) -> Self {
-        assert!(data.len() >= leaf_size);
+        assert!(leaf_size > 0);
         let indices = non_duplicate_indices(data);
         let mut boundaries = VecMap::<f64>::new();
         let mut leaves = BTreeMap::<usize, Vec<usize>>::new();
@@ -317,6 +357,9 @@ impl<'a, const D: usize> KdTree<'a, D> {
         print_tree::<D>(&self.boundaries, &self.leaves, &self.data);
     }
 
+    /// Returns the index of the nearest item from the given query in the target data,
+    /// along with the distance from the query to the nearest item.
+    /// The index is None if the target data is empty.
     pub fn search(&self, query: &Vector<D>) -> (Option<usize>, f64) {
         // let t1 = awkernel_lib::delay::uptime();
         let leaf_index = find_leaf(query, &self.boundaries);
@@ -351,7 +394,7 @@ mod tests {
     fn to_vecs(data: &[[f64; 2]]) -> Vec<Vector<2>> {
         data
             .iter()
-            .map(|s| (*s).into())
+            .map(|&s| s.into())
             .collect::<Vec<Vector<2>>>()
     }
 
