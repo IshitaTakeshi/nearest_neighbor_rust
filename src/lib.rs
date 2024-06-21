@@ -643,27 +643,33 @@ mod tests {
 
     #[test]
     fn test_new_with_duplicated_elements() {
+        // The tree building process will not stop
+        // if we don't remove indices of duplicated data elements
         let raw_data: [[f64; 2]; 15] = [
-            [-3., -1.],
-            [-3., -1.],
-            [-3., -1.],
-            [-3., -1.],
-            [-3., -1.],
-            [-3., 3.],
-            [-3., -3.],
-            [-1., -1.],
-            [-1., 3.],
-            [1., 3.],
-            [2., -3.],
-            [2., -1.],
-            [2., 3.],
-            [3., -1.],
-            [4., 1.],
+            [-3., -1.],   // 0
+            [-3., -1.],   // 1
+            [-3., -1.],   // 2
+            [-3., -1.],   // 3
+            [-3., -1.],   // 4
+            [-3., 3.],    // 5
+            [-3., -3.],   // 6
+            [-1., -1.],   // 7
+            [-1., 3.],    // 8
+            [1., 3.],     // 9
+            [2., -3.],    // 10
+            [2., -1.],    // 11
+            [2., 3.],     // 12
+            [3., -1.],    // 13
+            [4., 1.],     // 14
         ];
         let leaf_size = 1;
         let vecs = to_vecs(&raw_data);
         let tree = KdTree::new(&vecs, leaf_size);
-        tree.search(&Vector::<2>::new(0., -4.));
+
+        let query = Vector::<2>::new(0., -4.);
+        let (argmin, distance) = tree.search(&query);
+        assert_eq!(argmin, Some(10));
+        assert_eq!(distance, squared_euclidean(&query, &vecs[10]));
     }
 
     #[test]
