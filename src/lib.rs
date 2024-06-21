@@ -642,7 +642,25 @@ mod tests {
     }
 
     #[test]
-    fn test_new_with_duplicated_elements() {
+    fn test_new_from_too_few_elements() {
+        // Fewer elements than the leaf size
+        let raw_data: [[f64; 2]; 3] = [
+            [-3., -1.],
+            [-3., 3.],
+            [-1., -1.],
+        ];
+        let leaf_size = 4;
+        let vecs = to_vecs(&raw_data);
+        let tree = KdTree::new(&vecs, leaf_size);
+
+        let query = Vector::<2>::new(-3., 2.);
+        let (argmin, distance) = tree.search(&query);
+        assert_eq!(argmin, Some(1));
+        assert_eq!(distance, squared_euclidean(&query, &vecs[1]));
+    }
+
+    #[test]
+    fn test_new_from_duplicated_elements() {
         // The tree building process will not stop
         // if we don't remove indices of duplicated data elements
         let raw_data: [[f64; 2]; 15] = [
