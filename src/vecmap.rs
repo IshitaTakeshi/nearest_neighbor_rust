@@ -7,7 +7,9 @@ pub struct VecMap<T> {
 
 impl<T: Clone> VecMap<T> {
     pub fn new() -> Self {
-        VecMap { vec: Vec::<Option<T>>::new() }
+        VecMap {
+            vec: Vec::<Option<T>>::new(),
+        }
     }
 
     pub fn insert(&mut self, index: usize, item: T) -> Option<T> {
@@ -31,7 +33,6 @@ impl<T: Clone> VecMap<T> {
         None
     }
 }
-
 
 #[cfg(test)]
 mod tests {

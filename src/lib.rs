@@ -39,21 +39,21 @@
 use log::info; // Use log crate when building application
 
 #[cfg(feature = "std")]
-use std::{println as info};
+use std::println as info;
 
 mod vecmap;
 
 #[macro_use]
 extern crate alloc;
 
-use core::ops::{MulAssign, AddAssign, SubAssign};
-use core::fmt::{Debug, Display};
+use crate::alloc::string::ToString;
 use crate::vecmap::VecMap;
-use num_traits::float::FloatCore;
-use core::cmp::Ordering;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
-use crate::alloc::string::ToString;
+use core::cmp::Ordering;
+use core::fmt::{Debug, Display};
+use core::ops::{AddAssign, MulAssign, SubAssign};
+use num_traits::float::FloatCore;
 
 use nalgebra::SVector;
 
@@ -74,7 +74,7 @@ fn divide<T: Float, const D: usize>(
     indices.sort_unstable_by(cmp);
 
     let mut k = indices.len() / 2;
-    while k > 0 && data[indices[k]][dim] == data[indices[k-1]][dim] {
+    while k > 0 && data[indices[k]][dim] == data[indices[k - 1]][dim] {
         k = k - 1;
     }
     let indices_r = indices.split_off(k);
@@ -83,11 +83,16 @@ fn divide<T: Float, const D: usize>(
 }
 
 #[inline]
-fn panic_leaf_node_not_found<T: Float, const D: usize>(query: &SVector<T, D>, leaf_index: usize) -> ! {
+fn panic_leaf_node_not_found<T: Float, const D: usize>(
+    query: &SVector<T, D>,
+    leaf_index: usize,
+) -> ! {
     panic!(
         "Leaf node corresponding to query = {:?} node_index = {} not found. \
         There's something wrong in the tree construction. \
-        Report the bug to the repository owner.", query, leaf_index)
+        Report the bug to the repository owner.",
+        query, leaf_index
+    )
 }
 
 #[inline]
@@ -120,7 +125,11 @@ fn squared_diff<T: Float>(a: T, b: T) -> T {
 }
 
 #[inline]
-fn distance_to_boundary<T: Float, const D: usize>(query: &SVector<T, D>, boundary: T, dim: usize) -> T {
+fn distance_to_boundary<T: Float, const D: usize>(
+    query: &SVector<T, D>,
+    boundary: T,
+    dim: usize,
+) -> T {
     squared_diff(query[(dim, 0)], boundary)
 }
 
@@ -186,8 +195,15 @@ fn print_tree<T: Float, const D: usize>(
 
         let depth = calc_depth(node_index);
         if let Some(indices) = leaves.get(&node_index) {
-            info!("{} {:3}  {:?}", " ".repeat(2 * depth), node_index,
-                indices.iter().map(|&i| data[i]).collect::<Vec<SVector<T, D>>>());
+            info!(
+                "{} {:3}  {:?}",
+                " ".repeat(2 * depth),
+                node_index,
+                indices
+                    .iter()
+                    .map(|&i| data[i])
+                    .collect::<Vec<SVector<T, D>>>()
+            );
             continue;
         };
 
@@ -195,7 +211,13 @@ fn print_tree<T: Float, const D: usize>(
             None => "".to_string(),
             Some(boundary) => format!("{:.5}", boundary),
         };
-        info!("{} index = {:2}:  dim = {}:  boundary = {}", " ".repeat(2 * depth), node_index, dim, b);
+        info!(
+            "{} index = {:2}:  dim = {}:  boundary = {}",
+            " ".repeat(2 * depth),
+            node_index,
+            dim,
+            b
+        );
 
         stack.push((node_index * 2 + 0, (dim + 1) % D));
         stack.push((node_index * 2 + 1, (dim + 1) % D));
@@ -240,9 +262,7 @@ fn non_duplicate_indices<T: Float, const D: usize>(data: &[SVector<T, D>]) -> Ve
 
     let mut indices = (0..data.len()).collect::<Vec<usize>>();
     indices.sort_by(cmp);
-    let cmp = |i1: &mut usize, i2: &mut usize| -> bool {
-        data[*i1] == data[*i2]
-    };
+    let cmp = |i1: &mut usize, i2: &mut usize| -> bool { data[*i1] == data[*i2] };
     indices.dedup_by(cmp);
     indices
 }
@@ -251,9 +271,9 @@ fn non_duplicate_indices<T: Float, const D: usize>(data: &[SVector<T, D>]) -> Ve
 pub struct KdTree<'a, T: Float, const D: usize> {
     data: &'a [SVector<T, D>],
     /// Maps a node_index to a boundary value
-    boundaries: VecMap::<T>,
+    boundaries: VecMap<T>,
     /// Maps a node_index (must be a leaf) to data indices in the leaf
-    leaves: BTreeMap::<usize, Vec<usize>>,
+    leaves: BTreeMap<usize, Vec<usize>>,
 }
 
 impl<'a, T: Float, const D: usize> KdTree<'a, T, D> {
@@ -314,7 +334,8 @@ impl<'a, T: Float, const D: usize> KdTree<'a, T, D> {
             let parent_index = node_index / 2;
             let &boundary = self.boundaries.get(&parent_index).unwrap();
             if distance > distance_to_boundary(query, boundary, boundary_dim) {
-                (argmin, distance) = self.find_within_distance(the_other_side_index, query, &argmin, distance);
+                (argmin, distance) =
+                    self.find_within_distance(the_other_side_index, query, &argmin, distance);
             }
             // If we simply write `(boundary_dim - 1) % D` this will overflow
             // in case boundary_dim = 0 so we need to add D
@@ -326,10 +347,7 @@ impl<'a, T: Float, const D: usize> KdTree<'a, T, D> {
 
     /// Constructs a new KD-Tree from the given slice of `nalgebra::SVector`
     /// and `leaf_size`.
-    pub fn new(
-        data: &'a [SVector<T, D>],
-        leaf_size: usize,
-    ) -> Self {
+    pub fn new(data: &'a [SVector<T, D>], leaf_size: usize) -> Self {
         assert!(leaf_size > 0);
         let indices = non_duplicate_indices(data);
         let mut boundaries = VecMap::<T>::new();
@@ -351,7 +369,11 @@ impl<'a, T: Float, const D: usize> KdTree<'a, T, D> {
             stack.push((indices_l, node_index * 2 + 0, next_dim));
             stack.push((indices_r, node_index * 2 + 1, next_dim));
         }
-        KdTree { data, boundaries, leaves }
+        KdTree {
+            data,
+            boundaries,
+            leaves,
+        }
     }
 
     pub fn print(&self) {
@@ -374,7 +396,8 @@ impl<'a, T: Float, const D: usize> KdTree<'a, T, D> {
         let (argmin, distance) = find_nearest(query, &indices, self.data);
 
         // let t4 = awkernel_lib::delay::uptime();
-        let (argmin, distance) = self.find_nearest_in_other_areas(query, &argmin, distance, leaf_index);
+        let (argmin, distance) =
+            self.find_nearest_in_other_areas(query, &argmin, distance, leaf_index);
 
         // let t5 = awkernel_lib::delay::uptime();
 
@@ -393,8 +416,7 @@ mod tests {
     use rand::distributions::{Distribution, Uniform};
 
     fn to_vecs(data: &[[f64; 2]]) -> Vec<SVector<f64, 2>> {
-        data
-            .iter()
+        data.iter()
             .map(|&s| s.into())
             .collect::<Vec<SVector<f64, 2>>>()
     }
@@ -537,31 +559,31 @@ mod tests {
     #[test]
     fn test_search_leaf_size_2() {
         let raw_data: [[f64; 2]; 25] = [
-            [2., 2.],    // 0
-            [3., 7.],    // 1
-            [3., 13.],   // 2
-            [3., 18.],   // 3
-            [5., 10.],   // 4
-            [6., 15.],   // 5
-            [7., 6.],    // 6
-            [8., 3.],    // 7
-            [8., 18.],   // 8
-            [10., 8.],   // 9
-            [10., 11.],  // 10
-            [10., 14.],  // 11
-            [11., 4.],   // 12
-            [11., 6.],   // 13
-            [13., 1.],   // 14
-            [13., 10.],  // 15
-            [13., 16.],  // 16
-            [14., 7.],   // 17
-            [14., 19.],  // 18
-            [15., 4.],   // 19
-            [15., 12.],  // 20
-            [17., 17.],  // 21
-            [18., 5.],   // 22
-            [18., 8.],   // 23
-            [18., 10.],  // 24
+            [2., 2.],   // 0
+            [3., 7.],   // 1
+            [3., 13.],  // 2
+            [3., 18.],  // 3
+            [5., 10.],  // 4
+            [6., 15.],  // 5
+            [7., 6.],   // 6
+            [8., 3.],   // 7
+            [8., 18.],  // 8
+            [10., 8.],  // 9
+            [10., 11.], // 10
+            [10., 14.], // 11
+            [11., 4.],  // 12
+            [11., 6.],  // 13
+            [13., 1.],  // 14
+            [13., 10.], // 15
+            [13., 16.], // 16
+            [14., 7.],  // 17
+            [14., 19.], // 18
+            [15., 4.],  // 19
+            [15., 12.], // 20
+            [17., 17.], // 21
+            [18., 5.],  // 22
+            [18., 8.],  // 23
+            [18., 10.], // 24
         ];
 
         let vecs = to_vecs(&raw_data);
@@ -591,16 +613,16 @@ mod tests {
     #[test]
     fn test_search_leaf_size_1() {
         let raw_data: [[f64; 2]; 10] = [
-            [-4., 5.],   //  0
-            [-3., -5.],  //  1
-            [-3., -3.],  //  2
-            [-3., 2.],   //  3
-            [1., 1.],    //  4
-            [1., 3.],    //  5
-            [2., -2.],   //  6
-            [3., 2.],    //  7
-            [3., 4.],    //  8
-            [5., -2.],   //  9
+            [-4., 5.],  //  0
+            [-3., -5.], //  1
+            [-3., -3.], //  2
+            [-3., 2.],  //  3
+            [1., 1.],   //  4
+            [1., 3.],   //  5
+            [2., -2.],  //  6
+            [3., 2.],   //  7
+            [3., 4.],   //  8
+            [5., -2.],  //  9
         ];
 
         let vecs = to_vecs(&raw_data);
@@ -626,24 +648,24 @@ mod tests {
     #[test]
     fn test_non_duplicate_indices() {
         let raw_data: [[f64; 2]; 18] = [
-            [3., 1.],   // 0
-            [3., 1.],   // 1
-            [4., 5.],   // 2
-            [3., 1.],   // 3
-            [3., 1.],   // 4
-            [2., 3.],   // 5
-            [3., 3.],   // 6
-            [3., 3.],   // 7
-            [1., 1.],   // 8
-            [1., 1.],   // 9
-            [1., 3.],   // 10
-            [1., 3.],   // 11
-            [2., 3.],   // 12
-            [2., 3.],   // 13
-            [2., 1.],   // 14
-            [2., 3.],   // 15
-            [3., 1.],   // 16
-            [4., 1.],   // 17
+            [3., 1.], // 0
+            [3., 1.], // 1
+            [4., 5.], // 2
+            [3., 1.], // 3
+            [3., 1.], // 4
+            [2., 3.], // 5
+            [3., 3.], // 6
+            [3., 3.], // 7
+            [1., 1.], // 8
+            [1., 1.], // 9
+            [1., 3.], // 10
+            [1., 3.], // 11
+            [2., 3.], // 12
+            [2., 3.], // 13
+            [2., 1.], // 14
+            [2., 3.], // 15
+            [3., 1.], // 16
+            [4., 1.], // 17
         ];
 
         // After sorting
@@ -688,11 +710,7 @@ mod tests {
     #[test]
     fn test_new_from_too_few_elements() {
         // Fewer elements than the leaf size
-        let raw_data: [[f64; 2]; 3] = [
-            [-3., -1.],
-            [-3., 3.],
-            [-1., -1.],
-        ];
+        let raw_data: [[f64; 2]; 3] = [[-3., -1.], [-3., 3.], [-1., -1.]];
         let leaf_size = 4;
         let vecs = to_vecs(&raw_data);
         let tree = KdTree::new(&vecs, leaf_size);
@@ -708,21 +726,21 @@ mod tests {
         // The tree building process will not stop
         // if we don't remove indices of duplicated data elements
         let raw_data: [[f64; 2]; 15] = [
-            [-3., -1.],   // 0
-            [-3., -1.],   // 1
-            [-3., -1.],   // 2
-            [-3., -1.],   // 3
-            [-3., -1.],   // 4
-            [-3., 3.],    // 5
-            [-3., -3.],   // 6
-            [-1., -1.],   // 7
-            [-1., 3.],    // 8
-            [1., 3.],     // 9
-            [2., -3.],    // 10
-            [2., -1.],    // 11
-            [2., 3.],     // 12
-            [3., -1.],    // 13
-            [4., 1.],     // 14
+            [-3., -1.], // 0
+            [-3., -1.], // 1
+            [-3., -1.], // 2
+            [-3., -1.], // 3
+            [-3., -1.], // 4
+            [-3., 3.],  // 5
+            [-3., -3.], // 6
+            [-1., -1.], // 7
+            [-1., 3.],  // 8
+            [1., 3.],   // 9
+            [2., -3.],  // 10
+            [2., -1.],  // 11
+            [2., 3.],   // 12
+            [3., -1.],  // 13
+            [4., 1.],   // 14
         ];
         let leaf_size = 1;
         let vecs = to_vecs(&raw_data);
@@ -737,17 +755,17 @@ mod tests {
     #[test]
     fn test_find_nearest_in_other_areas() {
         let raw_data: [[f64; 2]; 11] = [
-            [-3., -3.],   // 0
-            [-3., -1.],   // 1
-            [-3., 3.],    // 2
-            [-1., -1.],   // 3
-            [-1., 3.],    // 4
-            [1., 3.],     // 5
-            [2., -3.],    // 6
-            [2., -1.],    // 7
-            [2., 3.],     // 8
-            [3., -1.],    // 9
-            [4., 1.],     // 10
+            [-3., -3.], // 0
+            [-3., -1.], // 1
+            [-3., 3.],  // 2
+            [-1., -1.], // 3
+            [-1., 3.],  // 4
+            [1., 3.],   // 5
+            [2., -3.],  // 6
+            [2., -1.],  // 7
+            [2., 3.],   // 8
+            [3., -1.],  // 9
+            [4., 1.],   // 10
         ];
         let leaf_size = 2;
         let vecs = to_vecs(&raw_data);
@@ -778,7 +796,9 @@ mod tests {
             v
         };
 
-        let vecs = (0..5000).map(|_| random_uniform_vector()).collect::<Vec<SVector<f64, D>>>();
+        let vecs = (0..5000)
+            .map(|_| random_uniform_vector())
+            .collect::<Vec<SVector<f64, D>>>();
 
         let tree = KdTree::new(&vecs, 2);
         let indices: Vec<usize> = (0..vecs.len()).collect();
@@ -809,7 +829,9 @@ mod tests {
             v
         };
 
-        let vecs = (0..5000).map(|_| random_uniform_vector()).collect::<Vec<SVector<f32, D>>>();
+        let vecs = (0..5000)
+            .map(|_| random_uniform_vector())
+            .collect::<Vec<SVector<f32, D>>>();
 
         let tree = KdTree::new(&vecs, 2);
         let indices: Vec<usize> = (0..vecs.len()).collect();
