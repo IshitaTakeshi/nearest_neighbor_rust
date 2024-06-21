@@ -45,14 +45,7 @@ fn divide<const D: usize>(
     (data[indices_r[0]][dim], indices_l, indices_r)
 }
 
-pub struct KdTree<'a, const D: usize> {
-    data: &'a [Vector<D>],
-    /// Maps a node_index to a boundary value
-    boundaries: VecMap::<f64>,
-    /// Maps a node_index (must be a leaf) to data indices in the leaf
-    leaves: BTreeMap::<usize, Vec<usize>>,
-}
-
+#[inline]
 fn panic_leaf_node_not_found<const D: usize>(query: &Vector<D>, leaf_index: usize) -> ! {
     panic!(
         "Leaf node corresponding to query = {:?} node_index = {} not found. \
@@ -60,6 +53,7 @@ fn panic_leaf_node_not_found<const D: usize>(query: &Vector<D>, leaf_index: usiz
         Report the bug to the repository owner.", query, leaf_index)
 }
 
+#[inline]
 fn calc_depth(node_index: usize) -> usize {
     assert!(node_index > 0);
     let mut i = 2;
@@ -71,15 +65,29 @@ fn calc_depth(node_index: usize) -> usize {
     depth
 }
 
+#[inline]
 fn find_dim<const D: usize>(node_index: usize) -> usize {
     assert!(node_index > 0);
     calc_depth(node_index) % D
 }
 
+#[inline]
+fn squared_euclidean<const D: usize>(a: &Vector<D>, b: &Vector<D>) -> f64 {
+    let d = a - b;
+    d.dot(&d)
+}
+
+#[inline]
+fn squared_diff(a: f64, b: f64) -> f64 {
+    (a - b) * (a - b)
+}
+
+#[inline]
 fn distance_to_boundary<const D: usize>(query: &Vector<D>, boundary: f64, dim: usize) -> f64 {
     squared_diff(query[(dim, 0)], boundary)
 }
 
+#[inline]
 fn children_near_far(query_element: f64, boundary: f64, node_index: usize) -> (usize, usize) {
     if query_element < boundary {
         (node_index * 2 + 0, node_index * 2 + 1)
@@ -88,11 +96,72 @@ fn children_near_far(query_element: f64, boundary: f64, node_index: usize) -> (u
     }
 }
 
+#[inline]
 fn the_other_side_index(node_index: usize) -> usize {
     if node_index % 2 == 0 {
         node_index + 1
     } else {
         node_index - 1
+    }
+}
+
+#[inline]
+fn find_nearest<const D: usize>(
+    query: &Vector<D>,
+    indices: &[usize],
+    data: &[Vector<D>],
+) -> (Option<usize>, f64) {
+    let mut min_distance = f64::INFINITY;
+    let mut argmin = None;
+    for &index in indices {
+        let d = squared_euclidean(query, &data[index]);
+        if d < min_distance {
+            min_distance = d;
+            argmin = Some(index);
+        }
+    }
+    (argmin, min_distance)
+}
+
+#[inline]
+fn find_leaf<const D: usize>(query: &Vector<D>, boundaries: &VecMap<f64>) -> usize {
+    let mut node_index = 1;
+    let mut dim: usize = 0;
+    while let Some(&boundary) = boundaries.get(&node_index) {
+        node_index = if query[(dim, 0)] < boundary {
+            node_index * 2 + 0
+        } else {
+            node_index * 2 + 1
+        };
+        dim = (dim + 1) % D;
+    }
+    node_index
+}
+
+fn print_tree<const D: usize>(
+    boundaries: &VecMap<f64>,
+    leaves: &BTreeMap<usize, Vec<usize>>,
+    data: &[Vector<D>],
+) {
+    let mut stack = Vec::from([(1, 0)]);
+    while stack.len() != 0 {
+        let (node_index, dim) = stack.pop().unwrap();
+
+        let depth = calc_depth(node_index);
+        if let Some(indices) = leaves.get(&node_index) {
+            info!("{} {:3}  {:?}", " ".repeat(2 * depth), node_index,
+                indices.iter().map(|&i| data[i]).collect::<Vec<Vector<D>>>());
+            continue;
+        };
+
+        let b = match boundaries.get(&node_index) {
+            None => "".to_string(),
+            Some(boundary) => format!("{:.5}", boundary),
+        };
+        info!("{} index = {:2}:  dim = {}:  boundary = {}", " ".repeat(2 * depth), node_index, dim, b);
+
+        stack.push((node_index * 2 + 0, (dim + 1) % D));
+        stack.push((node_index * 2 + 1, (dim + 1) % D));
     }
 }
 
@@ -138,6 +207,14 @@ fn non_duplicate_indices<const D: usize>(data: &[Vector<D>]) -> Vec<usize> {
     };
     indices.dedup_by(cmp);
     indices
+}
+
+pub struct KdTree<'a, const D: usize> {
+    data: &'a [Vector<D>],
+    /// Maps a node_index to a boundary value
+    boundaries: VecMap::<f64>,
+    /// Maps a node_index (must be a leaf) to data indices in the leaf
+    leaves: BTreeMap::<usize, Vec<usize>>,
 }
 
 impl<'a, const D: usize> KdTree<'a, D> {
@@ -262,75 +339,6 @@ impl<'a, const D: usize> KdTree<'a, D> {
         // info!("find_nearest                 {}", t4 - t3);
         // info!("find_nearest_in_other_areas  {}", t5 - t4);
         (argmin, distance)
-    }
-}
-
-fn squared_diff(a: f64, b: f64) -> f64 {
-    (a - b) * (a - b)
-}
-
-#[inline]
-fn squared_euclidean<const D: usize>(a: &Vector<D>, b: &Vector<D>) -> f64 {
-    let d = a - b;
-    d.dot(&d)
-}
-
-#[inline]
-fn find_nearest<const D: usize>(
-    query: &Vector<D>,
-    indices: &[usize],
-    data: &[Vector<D>],
-) -> (Option<usize>, f64) {
-    let mut min_distance = f64::INFINITY;
-    let mut argmin = None;
-    for &index in indices {
-        let d = squared_euclidean(query, &data[index]);
-        if d < min_distance {
-            min_distance = d;
-            argmin = Some(index);
-        }
-    }
-    (argmin, min_distance)
-}
-
-fn find_leaf<const D: usize>(query: &Vector<D>, boundaries: &VecMap<f64>) -> usize {
-    let mut node_index = 1;
-    let mut dim: usize = 0;
-    while let Some(&boundary) = boundaries.get(&node_index) {
-        node_index = if query[(dim, 0)] < boundary {
-            node_index * 2 + 0
-        } else {
-            node_index * 2 + 1
-        };
-        dim = (dim + 1) % D;
-    }
-    node_index
-}
-
-fn print_tree<const D: usize>(
-    boundaries: &VecMap<f64>,
-    leaves: &BTreeMap<usize, Vec<usize>>,
-    data: &[Vector<D>],
-) {
-    let mut stack = Vec::from([(1, 0)]);
-    while stack.len() != 0 {
-        let (node_index, dim) = stack.pop().unwrap();
-
-        let depth = calc_depth(node_index);
-        if let Some(indices) = leaves.get(&node_index) {
-            info!("{} {:3}  {:?}", " ".repeat(2 * depth), node_index,
-                indices.iter().map(|&i| data[i]).collect::<Vec<Vector<D>>>());
-            continue;
-        };
-
-        let b = match boundaries.get(&node_index) {
-            None => "".to_string(),
-            Some(boundary) => format!("{:.5}", boundary),
-        };
-        info!("{} index = {:2}:  dim = {}:  boundary = {}", " ".repeat(2 * depth), node_index, dim, b);
-
-        stack.push((node_index * 2 + 0, (dim + 1) % D));
-        stack.push((node_index * 2 + 1, (dim + 1) % D));
     }
 }
 
