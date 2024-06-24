@@ -384,28 +384,14 @@ impl<'a, T: Float, const D: usize> KdTree<'a, T, D> {
     /// along with the distance from the query to the nearest item.
     /// The index is None if the target data is empty.
     pub fn search(&self, query: &SVector<T, D>) -> (Option<usize>, T) {
-        // let t1 = awkernel_lib::delay::uptime();
         let leaf_index = find_leaf(query, &self.boundaries);
 
-        // let t2 = awkernel_lib::delay::uptime();
         let Some(indices) = self.leaves.get(&leaf_index) else {
             panic_leaf_node_not_found(query, leaf_index);
         };
 
-        // let t3 = awkernel_lib::delay::uptime();
         let (argmin, distance) = find_nearest(query, &indices, self.data);
-
-        // let t4 = awkernel_lib::delay::uptime();
-        let (argmin, distance) =
-            self.find_nearest_in_other_areas(query, &argmin, distance, leaf_index);
-
-        // let t5 = awkernel_lib::delay::uptime();
-
-        // info!("find_leaf                    {}", t2 - t1);
-        // info!("leaves.get                   {}", t3 - t2);
-        // info!("find_nearest                 {}", t4 - t3);
-        // info!("find_nearest_in_other_areas  {}", t5 - t4);
-        (argmin, distance)
+        self.find_nearest_in_other_areas(query, &argmin, distance, leaf_index)
     }
 }
 
